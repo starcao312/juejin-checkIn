@@ -21,7 +21,7 @@ if (!fs.existsSync(DIR_PATH)) {
 }
 
 if (!QYWX_ROBOT) {
-    console.log("未配置 企业微信群机器人webhook地址, 跳过推送");
+    console.log("未配置 企业微信群机器人webhook地址, 跳过推送111");
 }
 
 const pushMsg = async (msg) => {
