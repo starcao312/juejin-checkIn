@@ -4,7 +4,8 @@
     "description": "",
     "main": "index.js",
     "scripts": {
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "timestamp": "node -e \"const fs=require('fs');const now=new Date();const line=now.toISOString().replace('T',' ').substring(0,19);fs.appendFileSync('./timestamp.txt', '\\n'+line);console.log('时间戳已写入: '+line)\""
     },
     "keywords": [],
     "author": "",
