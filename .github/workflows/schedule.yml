@@ -2,14 +2,15 @@ name: 定时签到任务
 
 on:
   schedule:
-    # 每天 UTC 时间晚上 11:00（北京时间早上 8:00）运行一次
-    - cron: "0 0 * * *"
+    # 每天 UTC 00:17（北京时间 08:17）运行，避开整点高峰
+    - cron: "17 0 * * *"
   
   workflow_dispatch:  # 添加手动触发器
 
 jobs:
   checkin:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
     - name: 检出代码
@@ -19,6 +20,9 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '22' # pnpm@11 需要 Node >= 22.13
+
+    - name: 验证签到结果判断
+      run: npm test
 
     - name: 安装依赖并执行签到脚本（带重试）
       run: |

@@ -3,6 +3,7 @@ const fs = require("fs");
 const { decodeQR, generateQRtoTerminal } = require("./utils");
 require('dotenv').config();
 const axios = require('axios');
+const { readCheckinStatus } = require("./checkin-status");
 
 const DIR_PATH = "./config";
 const COOKIE_PATH = DIR_PATH + "/cookies.json";
@@ -11,8 +12,8 @@ const QR_CODE_PATH = DIR_PATH + "/qrcode.png";
 let cookies = [];
 let msg = `今日签到状态：{checkin}, 获得矿石：{point}`;
 let errMsg = "";
-let checkin = "";
-let point = "-1";
+let checkin = "未确认";
+let point = "未获取";
 
 const QYWX_ROBOT = process.env.QYWX_ROBOT;
 
@@ -123,8 +124,9 @@ const browseRandomArticles = async (page, browser) => {
 
 const main = async () => {
     console.log("开始签到");
+    let browser;
     try {
-        const browser = await puppeteer.launch({
+        browser = await puppeteer.launch({
             args: [
                 "--no-sandbox",
             ],
@@ -210,113 +212,82 @@ const main = async () => {
         cookies = JSON.parse(fs.readFileSync(COOKIE_PATH, "utf-8"));
         await page.setCookie(...cookies);
 
-        let maxRetries = 3;
-        let attempt = 0;
-        let freeDrawFound = false;
-        let alreadySignedIn = false; //判断是否已签到
+        const maxRetries = 3;
+        let signedIn = false;
+        let lastError;
 
-        while (attempt < maxRetries && !freeDrawFound && !alreadySignedIn) {
-            attempt += 1;
-
-            await page.goto("https://juejin.cn/user/center/signin?from=main_page", {
-                waitUntil: "networkidle0",
-            });
-
-            await delay(7000);
+        for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
             try {
-                const signedinButton = await page.$(".code-calender .signedin");
-                if (signedinButton) {
-                    console.log("已签到，无需重复签到");
-                    alreadySignedIn = true;
-                } else {
-                    await page.waitForSelector(".code-calender .signin", { visible: true,timeout: 5000 });
-                    const checkinButton = await page.$(".code-calender .signin");
-
-                    if (checkinButton) {
-                        await checkinButton.click();
-                        console.log("签到按钮已点击。");
-                    } else {
-                        console.log("签到按钮未找到，可能页面未正确加载");
-                    }
+                signedIn = await readCheckinStatus(page);
+                if (!signedIn) {
+                    await page.waitForSelector(".code-calender .signin", {
+                        visible: true, timeout: 5000,
+                    });
+                    await page.click(".code-calender .signin");
+                    console.log("签到按钮已点击，正在验证签到结果");
+                    await delay(2000);
+                    signedIn = await readCheckinStatus(page);
                 }
-
-                await page.waitForSelector(".header-text > .figure-text");
-                const figureText = await page.$(".header-text > .figure-text");
-                point =
-                    (await page.evaluate((el) => el && el.textContent, figureText)) || point;
-            } catch (e) {
-                console.log("发生错误，无法完成签到或获取积分信息")
-            }
-
-            page.on("response", async (response) => {
-                const url = response.url();
-                if (
-                    url.includes("get_today_status") &&
-                    response.request().method() === "GET"
-                ) {
-                    const data = await response.json();
-                    console.log(`签到状态: ${JSON.stringify(data)}`)
-                    if (!data.data.check_in_done) return
-                    checkin = data.data.check_in_done ? "已签到" : "未签到";
-                    console.log(checkin);
+                if (!signedIn) {
+                    throw new Error("签到状态接口确认今日仍未签到");
                 }
-            });
-
-            await delay(2000);
-            await page.goto("https://juejin.cn/user/center/lottery?from=sign_in_success", {
-                waitUntil: "networkidle0",
-            });
-
-            await delay(2000);
-            //新增是否已经免费抽奖判断
-            try {
-                await page.waitForSelector("#turntable-item-0 div.text-free", { visible: true, timeout: 5000 });
-                const freeTextDiv = await page.$("#turntable-item-0 div.text-free");
-                if (freeTextDiv) {
-                    await freeTextDiv.click();
-                    console.log("已点击抽奖按钮");
-                    freeDrawFound = true;
-                } else {
-                    console.log("未找到可点击的免费抽奖按钮");
-                }
-            } catch (e) {
-                console.log("未找到可点击的免费抽奖按钮");
-            }
-
-            if (!freeDrawFound&&!alreadySignedIn) {
-                console.log(`未找到免费抽奖按钮，第${attempt}次重试签到`);
+                checkin = "已签到";
+                console.log("已通过接口确认今日签到成功");
+                break;
+            } catch (error) {
+                lastError = error;
+                console.error(`第 ${attempt} 次签到失败：${error.message}`);
+                if (attempt < maxRetries) await delay(2000);
             }
         }
 
-        if (attempt >= maxRetries && !freeDrawFound) {
-            console.log("已达到最大重试次数，签到失败");
-        } else {
-            // 浏览随机数量的文章
-            await delay(2000);
-            await browseRandomArticles(page, browser);
+        if (!signedIn) {
+            throw new Error(`重试 ${maxRetries} 次后仍无法确认签到成功：${lastError?.message}`);
         }
 
-        await page.reload({
+        // 矿石展示或免费抽奖不可用，不影响已确认的签到结果。
+        try {
+            await page.waitForSelector(".header-text > .figure-text", { timeout: 5000 });
+            point = await page.$eval(".header-text > .figure-text", (el) => el.textContent.trim()) || point;
+        } catch (error) {
+            console.log(`未能获取矿石信息：${error.message}`);
+        }
+
+        await page.goto("https://juejin.cn/user/center/lottery?from=sign_in_success", {
             waitUntil: "networkidle0",
         });
-
-        if (!point) {
-            point = "-1";
+        try {
+            await page.waitForSelector("#turntable-item-0 div.text-free", {
+                visible: true, timeout: 5000,
+            });
+            await page.click("#turntable-item-0 div.text-free");
+            console.log("已点击免费抽奖按钮");
+            await delay(2000);
+        } catch (error) {
+            console.log(`未找到可点击的免费抽奖按钮：${error.message}`);
         }
+
+        await browseRandomArticles(page, browser);
 
         msg = msg.replace("{checkin}", checkin).replace("{point}", point);
         console.log(msg);
         await pushMsg(msg);
-
-        await browser.close();
     } catch (e) {
         const error = e;
         console.error(error);
         errMsg = error.message;
         await pushMsg(`签到失败: ${errMsg}`);
         throw error;
+    } finally {
+        if (browser) {
+            await browser.close().catch((error) => {
+                console.error(`关闭浏览器失败：${error.message}`);
+            });
+        }
     }
     console.log("本轮签到结束");
 };
 
-main();
+main().catch(() => {
+    process.exitCode = 1;
+});

@@ -7,9 +7,9 @@
 ## 使用教程
 
 1. 本地运行
-   首次运行需要扫码登录 之后每天早上七点自动执行签到任务
+   首次运行需要扫码登录；每次运行 `node index.js` 执行一次签到
 2. 搭配`github action`
-   需要本地先运行一次扫码登录后推送代码 然后就可以执行 action 操作了 设置了每天早上 7 点执行
+   需要本地先运行一次扫码登录后推送代码，然后就可以执行 Actions。定时任务设置为每天北京时间 08:17（UTC 00:17）执行，也可在 Actions 页面手动运行。GitHub 定时调度可能延迟，不保证准点执行。
 3. 配置企业微信群机器人推送消息
    `QYWX_ROBOT` Settings action secrets 新增 QYWX_ROBOT 值就是你机器人的 webhook 地址
    [配置文档](https://developer.work.weixin.qq.com/document/path/91770)
@@ -70,6 +70,8 @@ docker-compose up -d
 ```
 
 ## 参数说明
+
+以下六字段表达式用于已弃用的 Docker 配置。GitHub Actions 使用五字段 cron，当前配置为 `17 0 * * *`（UTC）。
 
 | 字段 | 值  |             含义              |
 | :--: | :-: | :---------------------------: |
